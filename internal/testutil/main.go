@@ -3,6 +3,7 @@ package testutil
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"go.opentelemetry.io/otel"
@@ -53,6 +54,102 @@ func (p *MemorySpanProcessor) CapturedSpans() []trace.ReadOnlySpan {
 	return copied
 }
 
+type Node struct {
+	GraphID    string
+	ID         string
+	ParentID   string
+	Children   []*Node
+	Attributes map[string]string
+	SpanName   string
+}
+
+// Constructs the graphs from a list of nodes. Returns a map of graph roots indexed by GraphID.
+func ConstructGraphs(nodes []*Node) map[string][]*Node {
+	// Map to hold all nodes by ID for easy lookup.
+	allNodes := make(map[string]*Node)
+	// Map to hold root nodes of each graph by GraphID.
+	graphs := make(map[string][]*Node)
+
+	// Initialize the maps.
+	for _, node := range nodes {
+		allNodes[node.ID] = node
+		node.Children = []*Node{} // Ensure children are initialized.
+	}
+
+	// Construct the parent-child relationships.
+	for _, node := range nodes {
+		parent, exists := allNodes[node.ParentID]
+		if exists {
+			parent.Children = append(parent.Children, node)
+		} else {
+			// This node has no parent, so it's a root node.
+			if node.SpanName == "ResolveCheck" {
+				graphs[node.GraphID] = append(graphs[node.GraphID], node)
+			}
+		}
+	}
+
+	return graphs
+}
+
+// VisualizeGraph prints a visual representation of the graph starting from the root node.
+func VisualizeGraph(nodes []*Node, level int) {
+	// Print the current node with indentation based on its level in the graph.
+	indent := strings.Repeat("  ", level)
+
+	for _, node := range nodes {
+		fmt.Printf("%sSpan Name: %s, Attrs: %+v\n", indent, node.SpanName, node.Attributes)
+		VisualizeGraph(node.Children, level+1) // Recurse for each child.
+	}
+}
+
+func analyzeGraphFromSpans(spans []trace.ReadOnlySpan) {
+	nodes := make([]*Node, 0)
+
+	for _, span := range spans {
+		attributes := map[string]string{}
+
+		attrs := span.Attributes()
+
+		for _, attr := range attrs {
+			if attr.Key == "resolver_type" {
+				attributes["resolver_type"] = attr.Value.AsString()
+				continue
+			}
+			if attr.Key == "tuple_key" {
+				attributes["tuple"] = attr.Value.AsString()
+				continue
+			}
+		}
+
+		ID := span.SpanContext().SpanID().String()
+		parentID := span.Parent().SpanID().String()
+		graphID := span.Parent().TraceID().String()
+
+		if graphID == "00000000000000000000000000000000" {
+			continue
+		}
+
+		nodes = append(nodes, &Node{
+			ID:         ID,
+			GraphID:    graphID,
+			ParentID:   parentID,
+			Attributes: attributes,
+			SpanName:   span.Name(),
+		})
+	}
+
+	// Construct the graphs
+	graphs := ConstructGraphs(nodes)
+
+	// Visualize each graph
+	for _, root := range graphs {
+		fmt.Println("------")
+		VisualizeGraph(root, 0)
+		fmt.Println("------")
+	}
+}
+
 func NewAnalyzeGraph() func() {
 	processor := NewMemorySpanProcessor()
 	otel.SetTracerProvider(trace.NewTracerProvider(trace.WithSpanProcessor(processor)))
@@ -60,117 +157,5 @@ func NewAnalyzeGraph() func() {
 	return func() {
 		allSpans := processor.CapturedSpans()
 		analyzeGraphFromSpans(allSpans)
-	}
-}
-
-type Tree = struct {
-	id    string
-	nodes []Node
-}
-
-type Node struct {
-	ID       string
-	ParentID string
-	TreeID   string
-	Children []*Node
-}
-
-// / BuildTrees constructs the trees from a list of nodes.
-func BuildTrees(nodes []*Node) map[string]*Node {
-	// A map to hold the root nodes of each tree, keyed by TreeID.
-	trees := make(map[string]*Node)
-	// A map to quickly find nodes by their ID for linking parents and children.
-	nodeMap := make(map[string]*Node)
-
-	// First, map all nodes by their ID.
-	for _, node := range nodes {
-		if node == nil {
-			continue
-		}
-		nodeMap[node.ID] = node
-	}
-
-	// Next, iterate over the nodes to construct the trees.
-	for _, node := range nodes {
-		if node.ParentID == "00000000000000000000000000000000" {
-			// This is a root node; add it directly to the trees map.
-			trees[node.TreeID] = node
-		} else {
-			// This node has a parent; find the parent and add this node as a child.
-			parent, exists := nodeMap[node.ParentID]
-			if exists {
-				parent.Children = append(parent.Children, node)
-			}
-			// Note: If a parent doesn't exist in the map, the node is skipped.
-			// You might want to handle this case depending on your requirements.
-		}
-	}
-
-	return trees
-}
-
-// PrintTree is a helper function to print the tree structure starting from a root node.
-func PrintTree(node Node, level int) {
-	prefix := ""
-	for i := 0; i < level; i++ {
-		prefix += "  "
-	}
-	fmt.Printf("%sNode ID: %s\n", prefix, node.ID)
-	for _, child := range node.Children {
-		PrintTree(*child, level+1)
-	}
-}
-
-// NewNode creates a new Node instance.
-func NewNode(id, parentID, treeID string) Node {
-	return Node{
-		ID:       id,
-		ParentID: parentID,
-		TreeID:   treeID,
-		Children: []*Node{},
-	}
-}
-
-func analyzeGraphFromSpans(spans []trace.ReadOnlySpan) {
-
-	nodes := make([]*Node, len(spans))
-
-	for _, span := range spans {
-		attrs := span.Attributes()
-
-		var tuple string
-		for _, attr := range attrs {
-			//fmt.Println("***", attr.Key, fmt.Sprintf("%+v", attr.Value.AsString()))
-			if attr.Key == "resolver_type" {
-				//resolverType = attr.Value.AsString()
-				continue
-			}
-			if attr.Key == "tuple_key" {
-				tuple = attr.Value.AsString()
-				continue
-			}
-		}
-		_ = tuple
-
-		id := span.SpanContext().SpanID().String()
-		parentID := span.Parent().SpanID().String()
-		treeID := span.Parent().TraceID().String()
-
-		if treeID == "00000000000000000000000000000000" {
-			continue
-		}
-		fmt.Println("Tree ", treeID, " Parent ", parentID, "ID ", id)
-
-		newNode := NewNode(id, parentID, treeID)
-
-		nodes = append(nodes, &newNode)
-	}
-
-	trees := BuildTrees(nodes)
-
-	// For demonstration, print the trees.
-	for treeID, root := range trees {
-		fmt.Printf("Tree ID: %s, Root Node ID: %s\n", treeID, root.ID)
-		PrintTree(*root, 0)
 	}
 }
