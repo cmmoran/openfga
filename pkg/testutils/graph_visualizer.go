@@ -127,12 +127,17 @@ func analyzeGraphFromSpans(spans []trace.ReadOnlySpan) {
 			continue
 		}
 
+		spanName := span.Name()
+		if _, ok := attributes["resolver_type"]; ok {
+			spanName = attributes["resolver_type"]
+		}
+
 		nodes = append(nodes, &Node{
 			ID:         span.SpanContext().SpanID().String(),
 			GraphID:    graphID,
 			ParentID:   span.Parent().SpanID().String(),
 			Attributes: attributes,
-			SpanName:   span.Name(),
+			SpanName:   spanName,
 		})
 	}
 
