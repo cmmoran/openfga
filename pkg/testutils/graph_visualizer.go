@@ -12,7 +12,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 )
 
-// MemorySpanProcessor is a simple span processor for testing that captures spans in memory.
+// MemorySpanProcessor is span processor for testing that captures spans in memory.
 type MemorySpanProcessor struct {
 	mu    sync.Mutex
 	spans []trace.ReadOnlySpan
@@ -23,9 +23,8 @@ func NewMemorySpanProcessor() *MemorySpanProcessor {
 	return &MemorySpanProcessor{}
 }
 
-// OnStart does nothing for this processor.
+// OnStart is a no-op
 func (p *MemorySpanProcessor) OnStart(_ context.Context, _ trace.ReadWriteSpan) {
-	// No-op
 }
 
 // OnEnd captures a completed span.
@@ -35,15 +34,13 @@ func (p *MemorySpanProcessor) OnEnd(span trace.ReadOnlySpan) {
 	p.spans = append(p.spans, span)
 }
 
-// Shutdown cleans up any resources used by the processor.
+// Shutdown is a no-op
 func (p *MemorySpanProcessor) Shutdown(ctx context.Context) error {
-	// No-op
 	return nil
 }
 
-// ForceFlush does nothing for this processor.
+// ForceFlush is a no-op
 func (p *MemorySpanProcessor) ForceFlush(ctx context.Context) error {
-	// No-op
 	return nil
 }
 
@@ -67,25 +64,22 @@ type Node struct {
 
 // Constructs the graphs from a list of nodes. Returns a map of graph roots indexed by GraphID.
 func ConstructGraphs(nodes []*Node) map[string][]*Node {
-	// Map to hold all nodes by ID for easy lookup.
 	allNodes := make(map[string]*Node)
-	// Map to hold root nodes of each graph by GraphID.
 	graphs := make(map[string][]*Node)
 
-	// Initialize the maps.
 	for _, node := range nodes {
 		allNodes[node.ID] = node
-		node.Children = []*Node{} // Ensure children are initialized.
+		node.Children = []*Node{}
 	}
 
-	// Construct the parent-child relationships.
 	for _, node := range nodes {
 		parent, exists := allNodes[node.ParentID]
 		if exists {
 			parent.Children = append(parent.Children, node)
-		} else {
-			// This node has no parent, so it's a root node.
+			continue
+		}
 
+		if strings.Contains(node.SpanName, "Check") {
 			graphs[node.GraphID] = append(graphs[node.GraphID], node)
 		}
 	}
@@ -93,9 +87,9 @@ func ConstructGraphs(nodes []*Node) map[string][]*Node {
 	return graphs
 }
 
-// VisualizeGraph prints a visual representation of the graph starting from the root node.
+// VisualizeGraph prints a visual representation of the when provided
+// a set of nodes
 func VisualizeGraph(nodes []*Node, level int) {
-	// Print the current node with indentation based on its level in the graph.
 	indent := strings.Repeat("  ", level)
 
 	for _, node := range nodes {
@@ -106,7 +100,7 @@ func VisualizeGraph(nodes []*Node, level int) {
 		}
 
 		fmt.Printf("%s %s %s\n", indent, node.SpanName, attrStr)
-		VisualizeGraph(node.Children, level+1) // Recurse for each child.
+		VisualizeGraph(node.Children, level+1)
 	}
 }
 
@@ -122,11 +116,6 @@ func analyzeGraphFromSpans(spans []trace.ReadOnlySpan) {
 			}
 		}
 
-		graphID := span.Parent().TraceID().String()
-		if graphID == "00000000000000000000000000000000" {
-			continue
-		}
-
 		spanName := span.Name()
 		if _, ok := attributes["resolver_type"]; ok {
 			spanName = attributes["resolver_type"]
@@ -134,17 +123,14 @@ func analyzeGraphFromSpans(spans []trace.ReadOnlySpan) {
 
 		nodes = append(nodes, &Node{
 			ID:         span.SpanContext().SpanID().String(),
-			GraphID:    graphID,
+			GraphID:    span.Parent().TraceID().String(),
 			ParentID:   span.Parent().SpanID().String(),
 			Attributes: attributes,
 			SpanName:   spanName,
 		})
 	}
 
-	// Construct the graphs
 	graphs := ConstructGraphs(nodes)
-
-	// Visualize each graph
 	for _, root := range graphs {
 		fmt.Println("------")
 		VisualizeGraph(root, 0)
@@ -152,9 +138,19 @@ func analyzeGraphFromSpans(spans []trace.ReadOnlySpan) {
 	}
 }
 
-// NewAnalyzeGraph renders a visualization of the check resoltuion graph by
+// NewAnalyzeGraph renders a visualization of the check resolution graph by
 // creating and returning a function  to be deferred, which will run
 // after a timeout if the test doesn't complete.
+/*
+Example Usage:
+
+func TestWithCheckResolve(t *testing.T) {
+	analyzeGraph := testutils.NewAnalyzeGraph(10 * time.Second)
+	defer analyzeGraph()
+	...
+	// test with some check resolution
+}
+*/
 func NewAnalyzeGraph(timeout time.Duration) func() {
 	var once sync.Once
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
