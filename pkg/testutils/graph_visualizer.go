@@ -1,10 +1,12 @@
-package testutil
+package testutils
 
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/sdk/trace"
@@ -83,9 +85,8 @@ func ConstructGraphs(nodes []*Node) map[string][]*Node {
 			parent.Children = append(parent.Children, node)
 		} else {
 			// This node has no parent, so it's a root node.
-			if node.SpanName == "ResolveCheck" {
-				graphs[node.GraphID] = append(graphs[node.GraphID], node)
-			}
+
+			graphs[node.GraphID] = append(graphs[node.GraphID], node)
 		}
 	}
 
@@ -98,7 +99,13 @@ func VisualizeGraph(nodes []*Node, level int) {
 	indent := strings.Repeat("  ", level)
 
 	for _, node := range nodes {
-		fmt.Printf("%sSpan Name: %s, Attrs: %+v\n", indent, node.SpanName, node.Attributes)
+
+		attrStr := ""
+		if len(node.Attributes) > 0 {
+			attrStr = fmt.Sprintf("- %+v", node.Attributes)
+		}
+
+		fmt.Printf("%s %s %s\n", indent, node.SpanName, attrStr)
 		VisualizeGraph(node.Children, level+1) // Recurse for each child.
 	}
 }
@@ -109,31 +116,21 @@ func analyzeGraphFromSpans(spans []trace.ReadOnlySpan) {
 	for _, span := range spans {
 		attributes := map[string]string{}
 
-		attrs := span.Attributes()
-
-		for _, attr := range attrs {
-			if attr.Key == "resolver_type" {
-				attributes["resolver_type"] = attr.Value.AsString()
-				continue
-			}
-			if attr.Key == "tuple_key" {
-				attributes["tuple"] = attr.Value.AsString()
-				continue
+		for _, attr := range span.Attributes() {
+			if slices.Contains([]string{"resolver_type", "tuple_key", "singleflight_resolver_state", "singleflight_timeout_exceeded"}, string(attr.Key)) {
+				attributes[string(attr.Key)] = attr.Value.AsString()
 			}
 		}
 
-		ID := span.SpanContext().SpanID().String()
-		parentID := span.Parent().SpanID().String()
 		graphID := span.Parent().TraceID().String()
-
 		if graphID == "00000000000000000000000000000000" {
 			continue
 		}
 
 		nodes = append(nodes, &Node{
-			ID:         ID,
+			ID:         span.SpanContext().SpanID().String(),
 			GraphID:    graphID,
-			ParentID:   parentID,
+			ParentID:   span.Parent().SpanID().String(),
 			Attributes: attributes,
 			SpanName:   span.Name(),
 		})
@@ -150,12 +147,30 @@ func analyzeGraphFromSpans(spans []trace.ReadOnlySpan) {
 	}
 }
 
-func NewAnalyzeGraph() func() {
+// NewAnalyzeGraph renders a visualization of the check resoltuion graph by
+// creating and returning a function  to be deferred, which will run
+// after a timeout if the test doesn't complete.
+func NewAnalyzeGraph(timeout time.Duration) func() {
+	var once sync.Once
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+
 	processor := NewMemorySpanProcessor()
 	otel.SetTracerProvider(trace.NewTracerProvider(trace.WithSpanProcessor(processor)))
 
-	return func() {
+	analyzeFunc := func() {
 		allSpans := processor.CapturedSpans()
 		analyzeGraphFromSpans(allSpans)
+	}
+
+	go func() {
+		<-ctx.Done()
+		if ctx.Err() == context.DeadlineExceeded {
+			once.Do(analyzeFunc)
+		}
+	}()
+
+	return func() {
+		defer cancel()
+		once.Do(analyzeFunc)
 	}
 }
