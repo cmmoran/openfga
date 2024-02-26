@@ -79,9 +79,9 @@ func ConstructGraphs(nodes []*Node) map[string][]*Node {
 			continue
 		}
 
-		if strings.Contains(node.SpanName, "Check") {
-			graphs[node.GraphID] = append(graphs[node.GraphID], node)
-		}
+		//if strings.Contains(node.SpanName, "Check") {
+		graphs[node.GraphID] = append(graphs[node.GraphID], node)
+		//}
 	}
 
 	return graphs
@@ -111,7 +111,7 @@ func analyzeGraphFromSpans(spans []trace.ReadOnlySpan) {
 		attributes := map[string]string{}
 
 		for _, attr := range span.Attributes() {
-			if slices.Contains([]string{"resolver_type", "tuple_key", "singleflight_resolver_state", "singleflight_timeout_exceeded"}, string(attr.Key)) {
+			if slices.Contains([]string{"resolver_type", "tuple_key", "singleflight_resolver_state", "singleflight_timeout_exceeded", "cycle_detected", "is_cached"}, string(attr.Key)) {
 				attributes[string(attr.Key)] = attr.Value.AsString()
 			}
 		}
