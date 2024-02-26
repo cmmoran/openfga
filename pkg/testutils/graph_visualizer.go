@@ -3,7 +3,6 @@ package testutils
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -111,9 +110,7 @@ func analyzeGraphFromSpans(spans []trace.ReadOnlySpan) {
 		attributes := map[string]string{}
 
 		for _, attr := range span.Attributes() {
-			if slices.Contains([]string{"resolver_type", "tuple_key", "singleflight_resolver_state", "singleflight_timeout_exceeded", "cycle_detected", "is_cached"}, string(attr.Key)) {
-				attributes[string(attr.Key)] = attr.Value.AsString()
-			}
+			attributes[string(attr.Key)] = attr.Value.AsString()
 		}
 
 		spanName := span.Name()
