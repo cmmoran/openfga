@@ -16,6 +16,7 @@ import (
 
 	"github.com/openfga/openfga/internal/condition"
 	"github.com/openfga/openfga/internal/condition/eval"
+	"github.com/openfga/openfga/internal/dispatch"
 	serverconfig "github.com/openfga/openfga/internal/server/config"
 	"github.com/openfga/openfga/internal/validation"
 	"github.com/openfga/openfga/pkg/storage"
@@ -138,7 +139,7 @@ type checkOutcome struct {
 }
 
 type LocalChecker struct {
-	delegate           CheckResolver
+	delegate           dispatch.CheckDispatcher
 	concurrencyLimit   uint32
 	maxConcurrentReads uint32
 }
@@ -193,7 +194,7 @@ func NewLocalCheckerWithCycleDetection(opts ...LocalCheckerOption) CheckResolver
 }
 
 // SetDelegate sets this LocalChecker's dispatch delegate.
-func (c *LocalChecker) SetDelegate(delegate CheckResolver) {
+func (c *LocalChecker) SetDelegate(delegate dispatch.CheckDispatcher) {
 	c.delegate = delegate
 }
 

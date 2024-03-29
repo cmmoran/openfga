@@ -26,6 +26,7 @@ import (
 
 	"github.com/openfga/openfga/internal/build"
 	"github.com/openfga/openfga/internal/condition"
+	"github.com/openfga/openfga/internal/dispatch"
 	"github.com/openfga/openfga/internal/graph"
 	serverconfig "github.com/openfga/openfga/internal/server/config"
 	"github.com/openfga/openfga/internal/utils"
@@ -142,6 +143,8 @@ type Server struct {
 	dispatchThrottlingThreshold              uint32
 
 	dispatchThrottlingCheckResolver *graph.DispatchThrottlingCheckResolver
+
+	dispatcher dispatch.Dispatcher
 }
 
 type OpenFGAServiceV1Option func(s *Server)
