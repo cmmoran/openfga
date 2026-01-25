@@ -18,6 +18,8 @@ import (
 
 	"github.com/openfga/openfga/internal/condition/metrics"
 	"github.com/openfga/openfga/internal/condition/types"
+
+	"github.com/google/cel-go/ext"
 )
 
 var tracer = otel.Tracer("openfga/internal/condition")
@@ -31,6 +33,24 @@ func init() {
 	}
 
 	envOpts = append(envOpts, types.IPAddressEnvOption(), cel.EagerlyValidateDeclarations(true))
+
+	envOpts = append(envOpts,
+		cel.HomogeneousAggregateLiterals(),
+		cel.StdLib(),
+		cel.DefaultUTCTimeZone(true),
+		cel.CrossTypeNumericComparisons(true),
+		cel.OptionalTypes(),
+		cel.ASTValidators(
+			cel.ValidateDurationLiterals(),
+			cel.ValidateTimestampLiterals(),
+			cel.ValidateRegexLiterals(),
+			cel.ValidateHomogeneousAggregateLiterals(),
+		),
+		ext.Protos(),
+		ext.Sets(),
+		ext.Strings(),
+		ext.Bindings(),
+		ext.Math())
 
 	env, err := cel.NewEnv(envOpts...)
 	if err != nil {
